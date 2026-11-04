@@ -1,0 +1,136 @@
+"""Fetch a source, summarize it, check the citations and write the report files."""
+
+import re
+import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+
+from link_digest.citations import Segment, check_citations
+from link_digest.report import mark_unverified, missing_sections, render_html
+
+_EXPECTED_ERRORS = (OSError, subprocess.CalledProcessError, RuntimeError, ValueError)
+_MAX_TITLE = 80
+
+
+@dataclass(frozen=True)
+class Source:
+    url: str
+    kind: str  # "video"
+    post_text: str  # the text of the post around the content, may be ""
+    segments: list[Segment]
+
+
+@dataclass(frozen=True)
+class Digest:
+    title: str
+    summary: str  # first 600 chars of the "In short" section body
+    markdown_path: Path
+    html_path: Path
+    citations: int
+    unverified: int
+
+
+class DigestError(Exception):
+    def __init__(self, step: str, detail: str) -> None:
+        super().__init__(f"{step}: {detail}")
+        self.step = step
+        self.detail = detail
+
+
+def digest(
+    url: str,
+    fetch: Callable[[str], Source],
+    summarize: Callable[[Source], str],
+    notes_dir: Path,
+    html_dir: Path,
+    today: date,
+) -> Digest:
+    try:
+        source = fetch(url)
+    except _EXPECTED_ERRORS as err:
+        raise DigestError("fetch", str(err)) from err
+    report = _summarize(summarize, source)
+    problem = _problem(report, source)
+    if problem:
+        report = _summarize(summarize, source)
+        problem = _problem(report, source)
+    if problem:
+        raise DigestError("report", problem)
+    title = _title(report)
+    checks = check_citations(report, source.segments)
+    unverified = sum(not check.verified for check in checks)
+    marked = mark_unverified(report, checks)
+    name = f"{today.isoformat()} {title}"
+    md_path = notes_dir / f"{name}.md"
+    html_path = html_dir / f"{name}.html"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    html_dir.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(
+        f"---\nsource: {url}\ndate: {today.isoformat()}\n---\n{marked}",
+        encoding="utf-8",
+    )
+    html_path.write_text(render_html(marked, title, url), encoding="utf-8")
+    (html_dir / f"{name}.transcript.txt").write_text(
+        "".join(f"{format_line(s)}\n" for s in source.segments), encoding="utf-8"
+    )
+    return Digest(title, _summary(report), md_path, html_path, len(checks), unverified)
+
+
+def format_timestamp(seconds: int) -> str:
+    """Format seconds as mm:ss, or h:mm:ss from one hour up."""
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def format_line(segment: Segment) -> str:
+    return f"[{format_timestamp(segment.start_seconds)}] {segment.text}"
+
+
+def _summarize(summarize: Callable[[Source], str], source: Source) -> str:
+    try:
+        return summarize(source)
+    except _EXPECTED_ERRORS as err:
+        raise DigestError("summarize", str(err)) from err
+
+
+def _problem(report: str, source: Source) -> str:
+    """Return why the report is unusable, or "" if it is fine."""
+    missing = missing_sections(report)
+    if missing:
+        return "missing sections: " + ", ".join(missing)
+    if not check_citations(report, source.segments):
+        return "no citations"
+    return ""
+
+
+def _summary(report: str) -> str:
+    body: list[str] = []
+    in_section = False
+    for line in report.splitlines():
+        if line.startswith("## "):
+            if in_section:
+                break
+            in_section = line[3:].strip().casefold() == "in short"
+        elif in_section:
+            body.append(line)
+    return "\n".join(body).strip()[:600]
+
+
+def _title(report: str) -> str:
+    """Return the first `# ` heading made safe for use in a file name."""
+    for line in report.splitlines():
+        if line.startswith("# "):
+            raw = line[2:]
+            break
+    else:
+        return "Untitled"
+    cleaned = re.sub(r"[/\\:]", " ", raw)
+    cleaned = re.sub(r"\.{2,}", "", cleaned)
+    cleaned = re.sub(r"[\"*?<>|#^\[\]]", "", cleaned)  # unsafe in Obsidian or Android
+    cleaned = " ".join(cleaned.split())[:_MAX_TITLE].strip(" .")
+    return cleaned or "Untitled"

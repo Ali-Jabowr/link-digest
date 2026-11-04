@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Turn saved video and article links into detailed, cited reports."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "av>=18,<19",
     "faster-whisper>=1.2.1",
 ]
 
