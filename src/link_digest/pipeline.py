@@ -17,7 +17,7 @@ _MAX_TITLE = 80
 @dataclass(frozen=True)
 class Source:
     url: str
-    kind: str  # "video"
+    kind: str  # "video" (timestamped segments) or "article" (numbered paragraphs)
     post_text: str  # the text of the post around the content, may be ""
     segments: list[Segment]
 
@@ -72,8 +72,9 @@ def digest(
         encoding="utf-8",
     )
     html_path.write_text(render_html(marked, title, url), encoding="utf-8")
+    lines = format_source_lines(source)
     (html_dir / f"{name}.transcript.txt").write_text(
-        "".join(f"{format_line(s)}\n" for s in source.segments), encoding="utf-8"
+        f"{lines}\n" if lines else "", encoding="utf-8"
     )
     return Digest(title, _summary(report), md_path, html_path, len(checks), unverified)
 
@@ -87,8 +88,15 @@ def format_timestamp(seconds: int) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
-def format_line(segment: Segment) -> str:
+def _format_line(kind: str, segment: Segment) -> str:
+    if kind == "article":
+        return f"[¶{segment.start_seconds}] {segment.text}"
     return f"[{format_timestamp(segment.start_seconds)}] {segment.text}"
+
+
+def format_source_lines(source: Source) -> str:
+    """One line per segment: [mm:ss] for a video, [¶n] for an article."""
+    return "\n".join(_format_line(source.kind, s) for s in source.segments)
 
 
 def _summarize(summarize: Callable[[Source], str], source: Source) -> str:

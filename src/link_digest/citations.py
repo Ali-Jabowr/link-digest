@@ -1,4 +1,4 @@
-"""Check that quoted report snippets appear in the transcript near their cited time."""
+"""Check that quoted report snippets appear in the source near their cited place."""
 
 import re
 from dataclasses import dataclass
@@ -6,20 +6,22 @@ from dataclasses import dataclass
 TOLERANCE_SECONDS = 60
 
 _TIME = r"\d+(?::\d+){1,2}"
+_PARAGRAPH = "¶"
 _CITATION = re.compile(
-    rf"\[(?P<times>{_TIME}(?:\s*[,–-]\s*{_TIME})*)\](?:\s*[\"“](?P<quote>[^\"”]*)[\"”])?"
+    rf"\[(?:(?P<times>{_TIME}(?:\s*[,–-]\s*{_TIME})*)|(?P<paragraph>{_PARAGRAPH}\d+))\]"
+    r"(?:\s*[\"“](?P<quote>[^\"”]*)[\"”])?"
 )
 
 
 @dataclass(frozen=True)
 class Segment:
-    start_seconds: int
+    start_seconds: int  # the paragraph number for text sources
     text: str
 
 
 @dataclass(frozen=True)
 class CitationCheck:
-    timestamp: str  # as written in the report, e.g. "12:34"
+    timestamp: str  # as written in the report, e.g. "12:34" or "¶3"
     snippet: str  # the quoted text as written in the report
     verified: bool
 
@@ -36,19 +38,26 @@ def _seconds(timestamp: str) -> int:
 
 
 def _find_near(
-    part: list[str], words: list[str], starts: list[int], position: int, cited: int
+    part: list[str],
+    words: list[str],
+    starts: list[int],
+    position: int,
+    cited: int,
+    tolerance: int,
 ) -> int | None:
     """Return the end index of the first match at or after position near cited."""
     for i in range(position, len(words) - len(part) + 1):
         window = starts[i : i + len(part)]
         if words[i : i + len(part)] == part and any(
-            abs(start - cited) <= TOLERANCE_SECONDS for start in window
+            abs(start - cited) <= tolerance for start in window
         ):
             return i + len(part)
     return None
 
 
-def _is_verified(snippet: str, cited: int, segments: list[Segment]) -> bool:
+def _is_verified(
+    snippet: str, cited: int, segments: list[Segment], tolerance: int
+) -> bool:
     words: list[str] = []
     starts: list[int] = []
     for segment in segments:
@@ -63,7 +72,7 @@ def _is_verified(snippet: str, cited: int, segments: list[Segment]) -> bool:
 
     position = 0
     for part in parts:
-        end = _find_near(part, words, starts, position, cited)
+        end = _find_near(part, words, starts, position, cited, tolerance)
         if end is None:
             return False
         position = end
@@ -73,19 +82,30 @@ def _is_verified(snippet: str, cited: int, segments: list[Segment]) -> bool:
 def find_citations(report: str) -> list[tuple[int, list[tuple[str, str]]]]:
     """Return (end offset, [(timestamp, snippet), ...]) for each citation in the report.
 
-    A range or list of timestamps, or a timestamp without a quote, has snippet "".
+    A range or list of timestamps, or a citation without a quote, has snippet "".
     """
     found = []
     for match in _CITATION.finditer(report):
+        if match["paragraph"]:
+            found.append((match.end(), [(match["paragraph"], match["quote"] or "")]))
+            continue
         timestamps = re.findall(_TIME, match["times"])
         quote = match["quote"] if len(timestamps) == 1 else None
         found.append((match.end(), [(ts, quote or "") for ts in timestamps]))
     return found
 
 
+def _check(ts: str, snippet: str, segments: list[Segment]) -> CitationCheck:
+    if ts.startswith(_PARAGRAPH):  # paragraphs have no tolerance
+        verified = _is_verified(snippet, int(ts[len(_PARAGRAPH) :]), segments, 0)
+    else:
+        verified = _is_verified(snippet, _seconds(ts), segments, TOLERANCE_SECONDS)
+    return CitationCheck(ts, snippet, verified)
+
+
 def check_citations(report: str, segments: list[Segment]) -> list[CitationCheck]:
     return [
-        CitationCheck(ts, snippet, _is_verified(snippet, _seconds(ts), segments))
+        _check(ts, snippet, segments)
         for _, cited in find_citations(report)
         for ts, snippet in cited
     ]

@@ -6,8 +6,16 @@ its source. Python 3.12, managed with uv.
 ## CLI
 
 ```sh
-uv run link-digest <video URL or local file> [--notes-dir DIR] [--html-dir DIR]
+uv run link-digest <URL or local file> [--notes-dir DIR] [--html-dir DIR]
 ```
+
+It takes X videos, X articles, X text posts, and videos from any other site yt-dlp
+supports. Articles and text posts are cited by paragraph (`[¶3]`), videos by
+timestamp.
+
+X articles and text posts are read through the third-party public FxTwitter API
+(`api.fxtwitter.com`), which sees the ids of the posts you read. Only the post
+itself is read: threads and links inside a post are not followed.
 
 It writes a Markdown note and an HTML report, and prints their paths and the
 citation counts. `./scripts/smoke.sh` runs the whole thing with the real tools on a

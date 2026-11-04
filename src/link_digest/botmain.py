@@ -12,12 +12,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from link_digest.bot import Sender, handle_update, process_next
-from link_digest.cli import _DEFAULT_HTML, _DEFAULT_NOTES
+from link_digest.cli import _DEFAULT_HTML, _DEFAULT_NOTES, choose_fetch
 from link_digest.pipeline import Digest, digest
 from link_digest.queue import JobQueue
 from link_digest.summarize import summarize
 from link_digest.telegram import Telegram, TelegramError
-from link_digest.video import fetch_video
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +92,9 @@ def main(argv: list[str] | None = None) -> int:
     html_dir = args.html_dir.expanduser()
 
     def run(url: str) -> Digest:
-        return digest(url, fetch_video, summarize, notes_dir, html_dir, date.today())
+        return digest(
+            url, choose_fetch(url), summarize, notes_dir, html_dir, date.today()
+        )
 
     worker = threading.Thread(target=_work, args=(queue, run, telegram), daemon=True)
     worker.start()

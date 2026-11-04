@@ -4,13 +4,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from link_digest.pipeline import Source, format_line
+from link_digest.pipeline import Source, format_source_lines
 
 SYSTEM_PROMPT = (
     "You write source-cited reports. You have no tools. Reply only with the report."
 )
 _PROMPTS = Path(__file__).parent / "prompts"
 _CITATION_FORM = '[12:34] "exact words from the source"'
+_ARTICLE_CITATION_FORM = '[¶3] "exact words from the source"'
 _TIMEOUT_SECONDS = 1800
 
 
@@ -20,13 +21,17 @@ def _defang(text: str) -> str:
 
 
 def build_prompt(source: Source) -> str:
-    lines = "\n".join(format_line(segment) for segment in source.segments)
-    body = _defang(f"Post text: {source.post_text}\n\nTranscript:\n{lines}")
+    is_article = source.kind == "article"
+    label = "Article" if is_article else "Transcript"
+    lines = format_source_lines(source)
+    body = _defang(f"Post text: {source.post_text}\n\n{label}:\n{lines}")
     # Substitute the source last so its text can never be taken for a placeholder.
     return (
         (_PROMPTS / "report.md")
         .read_text(encoding="utf-8")
-        .replace("{citation_form}", _CITATION_FORM)
+        .replace(
+            "{citation_form}", _ARTICLE_CITATION_FORM if is_article else _CITATION_FORM
+        )
         .replace("{profile}", (_PROMPTS / "profile.md").read_text(encoding="utf-8"))
         .replace("{source}", body)
     )
