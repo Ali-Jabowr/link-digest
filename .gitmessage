@@ -1,0 +1,19 @@
+
+
+# ── Commit template (lines starting with # are removed) ─────────────────
+# Subject: <type>(<scope>): <imperative summary, <= 72 chars>
+#   types: feat fix refactor test docs chore perf build ci
+#   Never mix a refactor and a behaviour change in one commit.
+#
+# Body: WHY this change, not a replay of the diff.
+#   Why:      the problem / requirement
+#   What:     the approach, in one or two lines
+#   Not done: known gaps, follow-ups
+#   Verified: the command(s) you ran
+#
+# Trailers (one per line, at the very end):
+#   Refs: #123
+#   Spec: docs/specs/<name>.md (T003)
+#   ADR: docs/adr/0007-<name>.md
+#   Assisted-by: Claude Code (<model>)
+#   Test-Change-Approved: <reason>   <- only when you changed an approved test on purpose
