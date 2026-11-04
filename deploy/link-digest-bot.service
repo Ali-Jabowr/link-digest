@@ -1,0 +1,13 @@
+[Unit]
+Description=Link Digest Telegram bot
+
+[Service]
+WorkingDirectory=%h/PROJECTS/link-digest
+EnvironmentFile=%h/.config/link-digest/env
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/installs/claude/latest:/usr/bin
+ExecStart=%h/PROJECTS/link-digest/.venv/bin/link-digest-bot
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

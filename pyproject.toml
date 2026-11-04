@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 link-digest = "link_digest.cli:main"
+link-digest-bot = "link_digest.botmain:main"
 
 [build-system]
 requires = ["hatchling"]
