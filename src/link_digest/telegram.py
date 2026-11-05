@@ -11,15 +11,27 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 _CALL_TIMEOUT = 30
 _UPLOAD_TIMEOUT = 120
 _POLL_MARGIN = 10  # seconds on top of the long-poll timeout
 
+ErrorKind = Literal["network", "rate_limited", "rejected"]
+
 
 class TelegramError(Exception):
     """A Telegram call failed. The message never contains the bot token."""
+
+    def __init__(
+        self,
+        message: str,
+        kind: ErrorKind = "rejected",
+        retry_after: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.retry_after = retry_after  # seconds Telegram asked us to wait
 
 
 class Telegram:
@@ -90,33 +102,57 @@ class Telegram:
             with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - base_url is http(s) we set
                 raw = response.read()
         except urllib.error.HTTPError as err:
-            detail = _description(err.read())
-            raise TelegramError(f"{method} failed: HTTP {err.code}{detail}") from None
+            body = err.read()
+            raise TelegramError(
+                f"{method} failed: HTTP {err.code}{_description(body)}",
+                _kind_of_status(err.code),
+                _retry_after(body),
+            ) from None
         except TimeoutError:
-            raise TelegramError(f"{method} failed: timed out") from None
+            raise TelegramError(f"{method} failed: timed out", "network") from None
         except (urllib.error.URLError, ConnectionError, http.client.HTTPException):
-            raise TelegramError(f"{method} failed: network error") from None
+            raise TelegramError(f"{method} failed: network error", "network") from None
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            raise TelegramError(f"{method} failed: invalid response") from None
+            # A garbled body comes from something in the way, so it may pass.
+            raise TelegramError(
+                f"{method} failed: invalid response", "network"
+            ) from None
         if not isinstance(data, dict):
-            raise TelegramError(f"{method} failed: invalid response")
+            raise TelegramError(f"{method} failed: invalid response", "network")
         if not data.get("ok"):
             description = data.get("description", "unknown error")
             raise TelegramError(f"{method} failed: {description}")
         return data.get("result")
 
 
-def _description(raw: bytes) -> str:
-    """Return ": <description>" from a Telegram error body, or "" if it has none."""
+def _kind_of_status(status: int) -> ErrorKind:
+    if status == 429:
+        return "rate_limited"
+    return "network" if status >= 500 else "rejected"
+
+
+def _error_body(raw: bytes) -> dict[str, Any]:
+    """Return a Telegram error body as a dict, or {} if it isn't one."""
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return ""
-    if isinstance(data, dict) and isinstance(data.get("description"), str):
-        return f": {data['description']}"
-    return ""
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _description(raw: bytes) -> str:
+    """Return ": <description>" from a Telegram error body, or "" if it has none."""
+    description = _error_body(raw).get("description")
+    return f": {description}" if isinstance(description, str) else ""
+
+
+def _retry_after(raw: bytes) -> int | None:
+    """Return the wait Telegram asked for in an error body, if any."""
+    parameters = _error_body(raw).get("parameters")
+    wait = parameters.get("retry_after") if isinstance(parameters, dict) else None
+    return wait if isinstance(wait, int) else None
 
 
 def _field(boundary: str, name: str, value: str) -> bytes:
