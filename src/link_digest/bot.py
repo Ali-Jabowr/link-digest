@@ -65,21 +65,24 @@ def process_next(queue: JobQueue, run: Callable[[str], Digest], send: Sender) ->
     job = queue.next_job()
     if job is None:
         return False
-    try:
-        digest = run(job.url)
-    except DigestError as err:
-        if not queue.fail(job.id):
-            _notify_failure(send, job.chat_id, job.message_id, job.url, err)
-        return True
-    except Exception:
-        # Count it so a job that always crashes can't restart the bot forever.
-        queue.fail(job.id)
-        raise
+    digest = job.digest
+    if digest is None:
+        try:
+            digest = run(job.url)
+        except DigestError as err:
+            if not queue.fail(job.id):
+                _notify_failure(send, job.chat_id, job.message_id, job.url, err)
+            return True
+        except Exception:
+            # Count it so a job that always crashes can't restart the bot forever.
+            queue.fail(job.id)
+            raise
+        queue.save_digest(job.id, digest)
     try:
         send.reply(job.chat_id, job.message_id, format_summary(digest, job.url))
         send.reply_file(job.chat_id, job.message_id, digest.html_path)
     except TelegramError as err:
-        # Counts as an attempt. A retry runs the whole job again.
+        # Counts as an attempt. A retry sends the saved Digest.
         log.warning("could not deliver %s: %s", job.url, err)
         queue.fail(job.id)
         return True
