@@ -1,14 +1,19 @@
 """Fetch a source, summarize it, check the citations and write the report files."""
 
+import hashlib
+import json
+import logging
 import re
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 
 from link_digest.citations import Segment, check_citations
 from link_digest.report import mark_unverified, missing_sections, render_html
+
+log = logging.getLogger(__name__)
 
 _EXPECTED_ERRORS = (OSError, subprocess.CalledProcessError, RuntimeError, ValueError)
 _MAX_TITLE = 80
@@ -77,6 +82,58 @@ def digest(
         f"{lines}\n" if lines else "", encoding="utf-8"
     )
     return Digest(title, _summary(report), md_path, html_path, len(checks), unverified)
+
+
+def digest_reusing_source(
+    url: str,
+    fetch: Callable[[str], Source],
+    summarize: Callable[[Source], str],
+    notes_dir: Path,
+    html_dir: Path,
+    sources_dir: Path,
+    today: date,
+) -> Digest:
+    """Make a Digest, keeping the fetched Source on disk until it is finished."""
+    saved = sources_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
+    result = digest(
+        url,
+        lambda target: _saved_or_fetched(saved, fetch, target),
+        summarize,
+        notes_dir,
+        html_dir,
+        today,
+    )
+    saved.unlink(missing_ok=True)
+    return result
+
+
+def _saved_or_fetched(saved: Path, fetch: Callable[[str], Source], url: str) -> Source:
+    source = _load_source(saved)
+    if source is not None:
+        return source
+    source = fetch(url)
+    saved.parent.mkdir(parents=True, exist_ok=True)
+    # Written aside first, so a crash can't leave half a Source to be reused.
+    partial = saved.with_suffix(".partial")
+    partial.write_text(json.dumps(asdict(source)), encoding="utf-8")
+    partial.replace(saved)
+    return source
+
+
+def _load_source(saved: Path) -> Source | None:
+    try:
+        fields = json.loads(saved.read_text(encoding="utf-8"))
+        return Source(
+            fields["url"],
+            fields["kind"],
+            fields["post_text"],
+            [Segment(s["start_seconds"], s["text"]) for s in fields["segments"]],
+        )
+    except FileNotFoundError:
+        return None
+    except (ValueError, KeyError, TypeError) as err:
+        log.warning("could not read saved source %s: %s", saved, err)
+        return None
 
 
 def format_timestamp(seconds: int) -> str:
