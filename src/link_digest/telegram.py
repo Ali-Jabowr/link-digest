@@ -59,6 +59,38 @@ class Telegram:
             },
         )
 
+    def send_status(self, chat_id: int, message_id: int, text: str) -> int:
+        """Reply without notifying, and return the id of the new message."""
+        result = self._call(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "disable_notification": True,
+                "reply_parameters": {
+                    "message_id": message_id,
+                    "allow_sending_without_reply": True,
+                },
+            },
+        )
+        if not isinstance(result, dict) or not isinstance(
+            result.get("message_id"), int
+        ):
+            raise TelegramError("sendMessage failed: invalid response", "network")
+        message: int = result["message_id"]
+        return message
+
+    def edit_status(self, chat_id: int, status_id: int, text: str) -> None:
+        try:
+            self._call(
+                "editMessageText",
+                {"chat_id": chat_id, "message_id": status_id, "text": text},
+            )
+        except TelegramError as err:
+            # Telegram refuses an edit to the text a message already has.
+            if "message is not modified" not in str(err):
+                raise
+
     def reply_file(self, chat_id: int, message_id: int, path: Path) -> None:
         boundary = uuid.uuid4().hex
         fields = {

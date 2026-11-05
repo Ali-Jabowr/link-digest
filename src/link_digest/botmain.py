@@ -13,8 +13,9 @@ from typing import Any, Protocol
 
 from link_digest.bot import Sender, handle_update, process_next
 from link_digest.cli import _DEFAULT_HTML, _DEFAULT_NOTES, choose_fetch
-from link_digest.pipeline import Digest, digest
+from link_digest.pipeline import Digest, Source, digest
 from link_digest.queue import JobQueue
+from link_digest.status import WRITING, JobStatus
 from link_digest.summarize import summarize
 from link_digest.telegram import Telegram, TelegramError
 
@@ -33,10 +34,17 @@ class Api(Protocol):
     def react(self, chat_id: int, message_id: int, emoji: str) -> None: ...
 
 
-def poll_once(api: Api, allowed_chat_id: int, queue: JobQueue) -> None:
+def poll_once(
+    api: Api,
+    allowed_chat_id: int,
+    queue: JobQueue,
+    announce: Callable[[str], None] = lambda _url: None,
+) -> None:
     """Fetch one batch of updates, queue their links and remember how far we got."""
     for update in api.get_updates(queue.get_offset(), _POLL_TIMEOUT):
         added = handle_update(update, allowed_chat_id, queue)
+        for url, _ in added:
+            announce(url)
         for message_id in dict.fromkeys(message_id for _, message_id in added):
             try:
                 api.react(allowed_chat_id, message_id, _SEEN)
@@ -91,19 +99,40 @@ def main(argv: list[str] | None = None) -> int:
     notes_dir = args.notes_dir.expanduser()
     html_dir = args.html_dir.expanduser()
 
+    status = JobStatus(telegram, queue)
+
     def run(url: str) -> Digest:
-        return digest(
-            url, choose_fetch(url), summarize, notes_dir, html_dir, date.today()
-        )
+        fetch = _announce_fetched(choose_fetch(url), lambda: status.show(url, WRITING))
+        return digest(url, fetch, summarize, notes_dir, html_dir, date.today())
 
-    worker = threading.Thread(target=_work, args=(queue, run, telegram), daemon=True)
+    worker = threading.Thread(
+        target=_work, args=(queue, run, telegram, status.show), daemon=True
+    )
     worker.start()
-    return run_until_worker_dies(worker, lambda: poll_once(telegram, chat_id, queue))
+    return run_until_worker_dies(
+        worker, lambda: poll_once(telegram, chat_id, queue, status.queued)
+    )
 
 
-def _work(queue: JobQueue, run: Callable[[str], Digest], send: Sender) -> None:
+def _announce_fetched(
+    fetch: Callable[[str], Source], announce: Callable[[], None]
+) -> Callable[[str], Source]:
+    def fetch_and_announce(url: str) -> Source:
+        source = fetch(url)
+        announce()
+        return source
+
+    return fetch_and_announce
+
+
+def _work(
+    queue: JobQueue,
+    run: Callable[[str], Digest],
+    send: Sender,
+    status: Callable[[str, str], None] = lambda _url, _text: None,
+) -> None:
     while True:
-        if not process_next(queue, run, send, time.sleep):
+        if not process_next(queue, run, send, time.sleep, status=status):
             time.sleep(_IDLE_SECONDS)
 
 
