@@ -79,10 +79,12 @@ def process_next(queue: JobQueue, run: Callable[[str], Digest], send: Sender) ->
             raise
         queue.save_digest(job.id, digest)
     try:
-        send.reply(job.chat_id, job.message_id, format_summary(digest, job.url))
+        if not job.summary_sent:
+            send.reply(job.chat_id, job.message_id, format_summary(digest, job.url))
+            queue.mark_summary_sent(job.id)
         send.reply_file(job.chat_id, job.message_id, digest.html_path)
     except TelegramError as err:
-        # Counts as an attempt. A retry sends the saved Digest.
+        # Counts as an attempt. A retry sends only what is still missing.
         log.warning("could not deliver %s: %s", job.url, err)
         queue.fail(job.id)
         return True

@@ -10,6 +10,10 @@ from pathlib import Path
 from link_digest.pipeline import Digest
 
 _MAX_ATTEMPTS = 3
+_ADDED_COLUMNS = {
+    "digest": "TEXT",
+    "summary_sent": "INTEGER NOT NULL DEFAULT 0",
+}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -32,6 +36,7 @@ class Job:
     message_id: int
     attempts: int
     digest: Digest | None = None  # set once the Digest is finished
+    summary_sent: bool = False
 
 
 class JobQueue:
@@ -43,8 +48,9 @@ class JobQueue:
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
             columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
-            if "digest" not in columns:
-                conn.execute("ALTER TABLE jobs ADD COLUMN digest TEXT")
+            for name, definition in _ADDED_COLUMNS.items():
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
 
     def add(self, url: str, chat_id: int, message_id: int) -> bool:
         """Queue a URL. False if it was ever queued before, whatever its state."""
@@ -63,9 +69,11 @@ class JobQueue:
             row = conn.execute(
                 "UPDATE jobs SET status = 'running' WHERE id = "
                 "(SELECT id FROM jobs WHERE status = 'pending' ORDER BY id LIMIT 1) "
-                "RETURNING id, url, chat_id, message_id, attempts, digest"
+                "RETURNING id, url, chat_id, message_id, attempts, digest, summary_sent"
             ).fetchone()
-        return None if row is None else Job(*row[:5], _load_digest(row[5]))
+        if row is None:
+            return None
+        return Job(*row[:5], _load_digest(row[5]), bool(row[6]))
 
     def save_digest(self, job_id: int, digest: Digest) -> None:
         with self._connect() as conn:
@@ -73,6 +81,10 @@ class JobQueue:
                 "UPDATE jobs SET digest = ? WHERE id = ?",
                 (_dump_digest(digest), job_id),
             )
+
+    def mark_summary_sent(self, job_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE jobs SET summary_sent = 1 WHERE id = ?", (job_id,))
 
     def complete(self, job_id: int) -> None:
         with self._connect() as conn:
