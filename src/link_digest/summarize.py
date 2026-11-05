@@ -1,10 +1,13 @@
 """Build the prompt and run Claude to turn a source into a cited report."""
 
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
 
 from link_digest.pipeline import Source, format_source_lines
+
+log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You write source-cited reports. You have no tools. Reply only with the report."
@@ -59,12 +62,13 @@ def build_command(model: str) -> list[str]:
 
 
 def summarize(source: Source, model: str = "sonnet") -> str:
+    prompt = build_prompt(source)
     # A fresh empty cwd so no project instructions are picked up.
     with tempfile.TemporaryDirectory() as cwd:
         try:
             result = subprocess.run(  # noqa: S603 - argument list, no shell
                 build_command(model),
-                input=build_prompt(source),
+                input=prompt,
                 cwd=cwd,
                 timeout=_TIMEOUT_SECONDS,
                 check=True,
@@ -77,4 +81,7 @@ def summarize(source: Source, model: str = "sonnet") -> str:
             raise RuntimeError(f"claude timed out after {err.timeout}s") from err
     if not result.stdout.strip():
         raise RuntimeError(f"claude returned no output: {result.stderr}")
+    log.info(
+        "claude prompt: %d chars, report: %d chars", len(prompt), len(result.stdout)
+    )
     return result.stdout

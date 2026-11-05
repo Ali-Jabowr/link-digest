@@ -92,7 +92,9 @@ def process_next(
             # Count it so a job that always crashes can't restart the bot forever.
             queue.fail(job.id)
             raise
-        queue.record_run(job.id, digest.kind, clock() - started)
+        seconds = clock() - started
+        log.info("digest of %s took %.1fs", job.url, seconds)
+        queue.record_run(job.id, digest.kind, seconds)
         queue.save_digest(job.id, digest)
     try:
         if not job.summary_sent:
