@@ -20,6 +20,7 @@ class Source:
     kind: str  # "video" (timestamped segments) or "article" (numbered paragraphs)
     post_text: str  # the text of the post around the content, may be ""
     segments: list[Segment]
+    note: str = ""  # told to the owner in the summary, never sent to Claude
 
 
 @dataclass(frozen=True)
@@ -77,9 +78,10 @@ def digest(
     (html_dir / f"{name}.transcript.txt").write_text(
         f"{lines}\n" if lines else "", encoding="utf-8"
     )
+    summary = _summary(report)
     return Digest(
         title,
-        _summary(report),
+        f"{source.note}\n\n{summary}" if source.note else summary,
         md_path,
         html_path,
         len(checks),
