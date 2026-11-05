@@ -78,9 +78,10 @@ def digest(
     (html_dir / f"{name}.transcript.txt").write_text(
         f"{lines}\n" if lines else "", encoding="utf-8"
     )
+    summary = _summary(report)
     return Digest(
         title,
-        _summary(report),
+        f"{source.note}\n\n{summary}" if source.note else summary,
         md_path,
         html_path,
         len(checks),
