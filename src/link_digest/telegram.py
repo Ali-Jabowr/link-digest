@@ -59,6 +59,12 @@ class Telegram:
             },
         )
 
+    def send_status(self, chat_id: int, message_id: int, text: str) -> int:
+        return 0
+
+    def edit_status(self, chat_id: int, status_id: int, text: str) -> None:
+        pass
+
     def reply_file(self, chat_id: int, message_id: int, path: Path) -> None:
         boundary = uuid.uuid4().hex
         fields = {

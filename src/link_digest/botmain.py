@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 from link_digest.bot import Sender, handle_update, process_next
 from link_digest.cli import _DEFAULT_HTML, _DEFAULT_NOTES, choose_fetch
-from link_digest.pipeline import Digest, digest
+from link_digest.pipeline import Digest, Source, digest
 from link_digest.queue import JobQueue
 from link_digest.summarize import summarize
 from link_digest.telegram import Telegram, TelegramError
@@ -33,7 +33,12 @@ class Api(Protocol):
     def react(self, chat_id: int, message_id: int, emoji: str) -> None: ...
 
 
-def poll_once(api: Api, allowed_chat_id: int, queue: JobQueue) -> None:
+def poll_once(
+    api: Api,
+    allowed_chat_id: int,
+    queue: JobQueue,
+    announce: Callable[[str], None] = lambda _url: None,
+) -> None:
     """Fetch one batch of updates, queue their links and remember how far we got."""
     for update in api.get_updates(queue.get_offset(), _POLL_TIMEOUT):
         added = handle_update(update, allowed_chat_id, queue)
@@ -101,7 +106,18 @@ def main(argv: list[str] | None = None) -> int:
     return run_until_worker_dies(worker, lambda: poll_once(telegram, chat_id, queue))
 
 
-def _work(queue: JobQueue, run: Callable[[str], Digest], send: Sender) -> None:
+def _announce_fetched(
+    fetch: Callable[[str], Source], announce: Callable[[], None]
+) -> Callable[[str], Source]:
+    return fetch
+
+
+def _work(
+    queue: JobQueue,
+    run: Callable[[str], Digest],
+    send: Sender,
+    status: Callable[[str, str], None] = lambda _url, _text: None,
+) -> None:
     while True:
         if not process_next(queue, run, send, time.sleep):
             time.sleep(_IDLE_SECONDS)
