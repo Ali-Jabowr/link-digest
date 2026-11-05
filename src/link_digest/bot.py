@@ -74,6 +74,7 @@ def process_next(
     send: Sender,
     sleep: Callable[[float], None] = lambda _seconds: None,
     clock: Callable[[], float] = time.monotonic,
+    forget: Callable[[str], None] = lambda _url: None,
 ) -> bool:
     """Run the oldest job. Return False if there was none."""
     job = queue.next_job()
@@ -86,11 +87,13 @@ def process_next(
             digest = run(job.url)
         except DigestError as err:
             if not queue.fail(job.id):
+                forget(job.url)
                 _notify_failure(send, job.chat_id, job.message_id, job.url, err)
             return True
         except Exception:
             # Count it so a job that always crashes can't restart the bot forever.
-            queue.fail(job.id)
+            if not queue.fail(job.id):
+                forget(job.url)
             raise
         queue.record_run(job.id, digest.kind, clock() - started)
         queue.save_digest(job.id, digest)

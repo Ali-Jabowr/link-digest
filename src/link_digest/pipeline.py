@@ -1,14 +1,19 @@
 """Fetch a source, summarize it, check the citations and write the report files."""
 
+import hashlib
+import json
+import logging
 import re
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 
 from link_digest.citations import Segment, check_citations
 from link_digest.report import mark_unverified, missing_sections, render_html
+
+log = logging.getLogger(__name__)
 
 _EXPECTED_ERRORS = (OSError, subprocess.CalledProcessError, RuntimeError, ValueError)
 _MAX_TITLE = 80
@@ -86,6 +91,78 @@ def digest(
         unverified,
         source.kind,
     )
+
+
+def digest_reusing_source(
+    url: str,
+    fetch: Callable[[str], Source],
+    summarize: Callable[[Source], str],
+    notes_dir: Path,
+    html_dir: Path,
+    sources_dir: Path,
+    today: date,
+) -> Digest:
+    """Make a Digest, keeping the fetched Source on disk until it is finished."""
+    saved = _saved_path(url, sources_dir)
+    result = digest(
+        url,
+        lambda target: _saved_or_fetched(saved, fetch, target),
+        summarize,
+        notes_dir,
+        html_dir,
+        today,
+    )
+    _remove_saved(saved)
+    return result
+
+
+def forget_source(url: str, sources_dir: Path) -> None:
+    """Remove the saved Source of a Link that gave up."""
+    _remove_saved(_saved_path(url, sources_dir))
+
+
+def _saved_path(url: str, sources_dir: Path) -> Path:
+    return sources_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
+
+
+def _remove_saved(saved: Path) -> None:
+    try:
+        saved.unlink(missing_ok=True)
+    except OSError as err:
+        log.warning("could not remove saved source %s: %s", saved, err)
+
+
+def _saved_or_fetched(saved: Path, fetch: Callable[[str], Source], url: str) -> Source:
+    source = _load_source(saved)
+    if source is not None:
+        return source
+    source = fetch(url)
+    try:
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        # Written aside first, so a crash can't leave half a Source to be reused.
+        partial = saved.with_suffix(".partial")
+        partial.write_text(json.dumps(asdict(source)), encoding="utf-8")
+        partial.replace(saved)
+    except OSError as err:
+        # Saving only speeds up a retry, so the Digest can go on without it.
+        log.warning("could not save source %s: %s", saved, err)
+    return source
+
+
+def _load_source(saved: Path) -> Source | None:
+    try:
+        fields = json.loads(saved.read_text(encoding="utf-8"))
+        return Source(
+            fields["url"],
+            fields["kind"],
+            fields["post_text"],
+            [Segment(s["start_seconds"], s["text"]) for s in fields["segments"]],
+        )
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        log.warning("could not read saved source %s: %s", saved, err)
+        return None
 
 
 def format_timestamp(seconds: int) -> str:

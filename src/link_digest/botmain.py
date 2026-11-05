@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 from link_digest.bot import Sender, handle_update, process_next
 from link_digest.cli import _DEFAULT_HTML, _DEFAULT_NOTES, choose_fetch
-from link_digest.pipeline import Digest, digest
+from link_digest.pipeline import Digest, digest_reusing_source, forget_source
 from link_digest.queue import JobQueue
 from link_digest.summarize import summarize
 from link_digest.telegram import Telegram, TelegramError
@@ -21,6 +21,7 @@ from link_digest.telegram import Telegram, TelegramError
 log = logging.getLogger(__name__)
 
 _QUEUE_PATH = Path("~/.local/share/link-digest/queue.db")
+_SOURCES_PATH = Path("~/.local/share/link-digest/sources")
 _POLL_TIMEOUT = 50
 _POLL_RETRY_SECONDS = 10
 _IDLE_SECONDS = 5
@@ -88,22 +89,42 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO)
     queue = JobQueue(_QUEUE_PATH.expanduser())
     queue.reset_running()
-    notes_dir = args.notes_dir.expanduser()
-    html_dir = args.html_dir.expanduser()
-
-    def run(url: str) -> Digest:
-        return digest(
-            url, choose_fetch(url), summarize, notes_dir, html_dir, date.today()
-        )
-
-    worker = threading.Thread(target=_work, args=(queue, run, telegram), daemon=True)
+    sources_dir = _SOURCES_PATH.expanduser()
+    run = _runner(args.notes_dir.expanduser(), args.html_dir.expanduser(), sources_dir)
+    worker = threading.Thread(
+        target=_work,
+        args=(queue, run, telegram, lambda url: forget_source(url, sources_dir)),
+        daemon=True,
+    )
     worker.start()
     return run_until_worker_dies(worker, lambda: poll_once(telegram, chat_id, queue))
 
 
-def _work(queue: JobQueue, run: Callable[[str], Digest], send: Sender) -> None:
+def _runner(
+    notes_dir: Path, html_dir: Path, sources_dir: Path
+) -> Callable[[str], Digest]:
+    def run(url: str) -> Digest:
+        return digest_reusing_source(
+            url,
+            choose_fetch(url),
+            summarize,
+            notes_dir,
+            html_dir,
+            sources_dir,
+            date.today(),
+        )
+
+    return run
+
+
+def _work(
+    queue: JobQueue,
+    run: Callable[[str], Digest],
+    send: Sender,
+    forget: Callable[[str], None] = lambda _url: None,
+) -> None:
     while True:
-        if not process_next(queue, run, send, time.sleep):
+        if not process_next(queue, run, send, time.sleep, forget=forget):
             time.sleep(_IDLE_SECONDS)
 
 
