@@ -21,22 +21,27 @@ Also decided:
 
 ## Tickets
 
-Each is one branch and one PR, tests first.
+The spec is issue #2, and the tickets are the GitHub issues below. Each is one branch and one PR, tests first.
 
-1. **Separate Delivery from Digest** (limit 7): includes the DB migration.
-2. **Resend failed Links and read hidden Links.**
-3. **Reuse the Source on retry and log sizes** (part of limit 6).
-4. **Pause when Claude is unavailable** (rest of limit 6). Needs 3.
-5. **Import** (limit 2): includes queue priority and the daily cap. Needs 2.
-6. **Offline notice** (limit 1). Needs 5.
-7. **Articles outside X** (limit 4): adds the `trafilatura` dependency.
-8. **Threads** (limit 3).
-9. **Wrapper posts and listed Links** (limit 3). Needs 7.
+- **#3 Save the Digest and resend only what's missing** (limit 7): includes the DB migration.
+- **#4 Keep Delivery retrying through outages** (limit 7). Needs #3.
+- **#5 Deliver after the original message is deleted** (limit 7): changes two approved tests, with the owner's approval.
+- **#6 Resend a failed Link to retry it.** Needs #3.
+- **#7 Read hidden Links.**
+- **#8 Reuse the Source on retry** (limit 6).
+- **#9 Log Digest sizes** (limit 6).
+- **#10 Pause when Claude is unavailable** (limit 6). Needs #8.
+- **#11 Import from a Telegram Desktop export** (limit 2). Needs #7.
+- **#12 Imported Links wait their turn** (limit 2): queue priority and the daily cap. Needs #11.
+- **#13 Offline notice** (limit 1). Needs #11.
+- **#14 Articles outside X** (limit 4): adds the `trafilatura` dependency.
+- **#15 Whole Threads** (limit 3).
+- **#16 Wrapper posts and listed Links** (limit 3). Needs #14.
 
 ## To verify when building
 
-- The Telegram Desktop export format against a real export (ticket 5).
-- `/2/thread` on a real long Thread: it worked on one short post and looks undocumented (ticket 8).
-- Whether FxTwitter returns expanded URLs or `t.co` links (ticket 9).
-- `queue.fail` semantics are pinned by approved tests, so a paused job needs a separate path that leaves `attempts` unchanged (ticket 4).
-- `--output-format text` is pinned by an approved test, so the probe must not change `build_command` (ticket 4).
+- The Telegram Desktop export format against a real export (#11).
+- `/2/thread` on a real long Thread: it worked on one short post and looks undocumented (#15).
+- Whether FxTwitter returns expanded URLs or `t.co` links (#16).
+- `queue.fail` semantics are pinned by approved tests, so a paused job needs a separate path that leaves `attempts` unchanged (#10).
+- `--output-format text` is pinned by an approved test, so the probe must not change `build_command` (#10).
