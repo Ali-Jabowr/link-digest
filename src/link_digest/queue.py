@@ -176,6 +176,7 @@ def _dump_digest(digest: Digest) -> str:
             "html_path": str(digest.html_path),
             "citations": digest.citations,
             "unverified": digest.unverified,
+            "kind": digest.kind,
         }
     )
 
@@ -191,4 +192,5 @@ def _load_digest(saved: str | None) -> Digest | None:
         Path(fields["html_path"]),
         fields["citations"],
         fields["unverified"],
+        fields.get("kind", ""),  # absent from a Digest saved before kinds existed
     )
