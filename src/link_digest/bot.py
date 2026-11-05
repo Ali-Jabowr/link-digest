@@ -2,7 +2,7 @@
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
@@ -27,11 +27,14 @@ class Sender(Protocol):
     def reply_file(self, chat_id: int, message_id: int, path: Path) -> None: ...
 
 
-def extract_links(text: str) -> list[str]:
-    """Return every http(s) URL in the text, in order, without duplicates."""
+def extract_links(text: str, hidden: Iterable[str] = ()) -> list[str]:
+    """Return every http(s) URL, visible then hidden, without duplicates."""
     links: dict[str, None] = {}  # a dict keeps insertion order
     for match in _URL.finditer(text):
         links[_clean(match.group().rstrip(_TRAILING))] = None
+    for url in hidden:
+        if _URL.fullmatch(url):
+            links[_clean(url)] = None
     return list(links)
 
 
@@ -44,9 +47,11 @@ def handle_update(
         return []
     text = message.get("text") or message.get("caption") or ""
     message_id = message["message_id"]
+    entities = message.get("entities", []) + message.get("caption_entities", [])
+    hidden = [e["url"] for e in entities if e["type"] == "text_link"]
     return [
         (url, message_id)
-        for url in extract_links(text)
+        for url in extract_links(text, hidden)
         if queue.add(url, allowed_chat_id, message_id)
     ]
 
