@@ -1,12 +1,19 @@
 """A small sqlite job queue shared by the Telegram poller and the worker thread."""
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from link_digest.pipeline import Digest
+
 _MAX_ATTEMPTS = 3
+_ADDED_COLUMNS = {
+    "digest": "TEXT",
+    "summary_sent": "INTEGER NOT NULL DEFAULT 0",
+}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -28,6 +35,8 @@ class Job:
     chat_id: int
     message_id: int
     attempts: int
+    digest: Digest | None = None  # set once the Digest is finished
+    summary_sent: bool = False
 
 
 class JobQueue:
@@ -38,6 +47,10 @@ class JobQueue:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+            for name, definition in _ADDED_COLUMNS.items():
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
 
     def add(self, url: str, chat_id: int, message_id: int) -> bool:
         """Queue a URL. False if it was ever queued before, whatever its state."""
@@ -56,9 +69,32 @@ class JobQueue:
             row = conn.execute(
                 "UPDATE jobs SET status = 'running' WHERE id = "
                 "(SELECT id FROM jobs WHERE status = 'pending' ORDER BY id LIMIT 1) "
-                "RETURNING id, url, chat_id, message_id, attempts"
+                "RETURNING id, url, chat_id, message_id, attempts, digest, summary_sent"
             ).fetchone()
-        return None if row is None else Job(*row)
+        if row is None:
+            return None
+        job_id, url, chat_id, message_id, attempts, digest, summary_sent = row
+        return Job(
+            job_id,
+            url,
+            chat_id,
+            message_id,
+            attempts,
+            _load_digest(digest),
+            bool(summary_sent),
+        )
+
+    def save_digest(self, job_id: int, digest: Digest) -> None:
+        """Save a finished Digest. Attempts now count tries at its Delivery."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET digest = ?, attempts = 0 WHERE id = ?",
+                (_dump_digest(digest), job_id),
+            )
+
+    def mark_summary_sent(self, job_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE jobs SET summary_sent = 1 WHERE id = ?", (job_id,))
 
     def complete(self, job_id: int) -> None:
         with self._connect() as conn:
@@ -98,3 +134,30 @@ class JobQueue:
         # Inner `with conn` commits or rolls back; closing() releases the file.
         with closing(sqlite3.connect(self._path)) as conn, conn:
             yield conn
+
+
+def _dump_digest(digest: Digest) -> str:
+    return json.dumps(
+        {
+            "title": digest.title,
+            "summary": digest.summary,
+            "markdown_path": str(digest.markdown_path),
+            "html_path": str(digest.html_path),
+            "citations": digest.citations,
+            "unverified": digest.unverified,
+        }
+    )
+
+
+def _load_digest(saved: str | None) -> Digest | None:
+    if saved is None:
+        return None
+    fields = json.loads(saved)
+    return Digest(
+        fields["title"],
+        fields["summary"],
+        Path(fields["markdown_path"]),
+        Path(fields["html_path"]),
+        fields["citations"],
+        fields["unverified"],
+    )
