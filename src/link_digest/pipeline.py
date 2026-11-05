@@ -30,6 +30,7 @@ class Digest:
     html_path: Path
     citations: int
     unverified: int
+    kind: str = ""  # the kind of its Source, "" in a Digest saved before this existed
 
 
 class DigestError(Exception):
@@ -76,7 +77,15 @@ def digest(
     (html_dir / f"{name}.transcript.txt").write_text(
         f"{lines}\n" if lines else "", encoding="utf-8"
     )
-    return Digest(title, _summary(report), md_path, html_path, len(checks), unverified)
+    return Digest(
+        title,
+        _summary(report),
+        md_path,
+        html_path,
+        len(checks),
+        unverified,
+        source.kind,
+    )
 
 
 def format_timestamp(seconds: int) -> str:

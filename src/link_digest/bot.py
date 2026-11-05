@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any, Protocol
@@ -72,6 +73,7 @@ def process_next(
     run: Callable[[str], Digest],
     send: Sender,
     sleep: Callable[[float], None] = lambda _seconds: None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> bool:
     """Run the oldest job. Return False if there was none."""
     job = queue.next_job()
@@ -79,6 +81,7 @@ def process_next(
         return False
     digest = job.digest
     if digest is None:
+        started = clock()
         try:
             digest = run(job.url)
         except DigestError as err:
@@ -89,6 +92,7 @@ def process_next(
             # Count it so a job that always crashes can't restart the bot forever.
             queue.fail(job.id)
             raise
+        queue.record_run(job.id, digest.kind, clock() - started)
         queue.save_digest(job.id, digest)
     try:
         if not job.summary_sent:
