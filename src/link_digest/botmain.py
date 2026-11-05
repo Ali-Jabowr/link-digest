@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _work(queue: JobQueue, run: Callable[[str], Digest], send: Sender) -> None:
     while True:
-        if not process_next(queue, run, send):
+        if not process_next(queue, run, send, time.sleep):
             time.sleep(_IDLE_SECONDS)
 
 

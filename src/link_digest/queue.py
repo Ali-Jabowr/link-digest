@@ -111,6 +111,15 @@ class JobQueue:
             ).fetchone()
         return row is not None and row[0] == "pending"
 
+    def retry_delivery(self, job_id: int) -> None:
+        """Count a try that hit an outage. Unlike fail, this never gives up."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET attempts = attempts + 1, status = 'pending' "
+                "WHERE id = ?",
+                (job_id,),
+            )
+
     def reset_running(self) -> None:
         """Put jobs left running by a crash back to pending."""
         with self._connect() as conn:

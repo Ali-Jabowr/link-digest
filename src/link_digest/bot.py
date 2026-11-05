@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 from link_digest.pipeline import Digest, DigestError
-from link_digest.queue import JobQueue
+from link_digest.queue import Job, JobQueue
 from link_digest.telegram import TelegramError
 
 log = logging.getLogger(__name__)
@@ -17,6 +17,8 @@ _URL = re.compile(r"https?://\S+")
 _TRAILING = ".,;:!?)]}'\""
 _X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
 _MAX_MESSAGE = 4000
+_BACKOFF_START = 5  # seconds
+_BACKOFF_MAX = 300  # seconds
 
 
 class Sender(Protocol):
@@ -60,7 +62,12 @@ def format_summary(digest: Digest, url: str) -> str:
     return head + summary + tail
 
 
-def process_next(queue: JobQueue, run: Callable[[str], Digest], send: Sender) -> bool:
+def process_next(
+    queue: JobQueue,
+    run: Callable[[str], Digest],
+    send: Sender,
+    sleep: Callable[[float], None] = lambda _seconds: None,
+) -> bool:
     """Run the oldest job. Return False if there was none."""
     job = queue.next_job()
     if job is None:
@@ -84,15 +91,37 @@ def process_next(queue: JobQueue, run: Callable[[str], Digest], send: Sender) ->
             queue.mark_summary_sent(job.id)
         send.reply_file(job.chat_id, job.message_id, digest.html_path)
     except TelegramError as err:
-        # Counts as an attempt. A retry sends only what is still missing.
-        log.warning("could not deliver %s: %s", job.url, err)
-        queue.fail(job.id)
+        # A retry sends only what is still missing.
+        _after_failed_delivery(queue, job, digest, err, sleep)
         return True
     except Exception:
         queue.fail(job.id)
         raise
     queue.complete(job.id)
     return True
+
+
+def _after_failed_delivery(
+    queue: JobQueue,
+    job: Job,
+    digest: Digest,
+    err: TelegramError,
+    sleep: Callable[[float], None],
+) -> None:
+    if err.kind == "rejected":
+        if queue.fail(job.id):
+            log.warning("could not deliver %s: %s", job.url, err)
+        else:
+            log.error(
+                "gave up delivering %s: %s; the report stays at %s",
+                job.url,
+                err,
+                digest.html_path,
+            )
+        return
+    log.warning("could not deliver %s: %s", job.url, err)
+    queue.retry_delivery(job.id)
+    sleep(err.retry_after or min(_BACKOFF_START * 2**job.attempts, _BACKOFF_MAX))
 
 
 def _notify_failure(
