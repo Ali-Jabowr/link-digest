@@ -9,12 +9,13 @@ from pathlib import Path
 
 from link_digest.pipeline import Digest
 
-_MAX_ATTEMPTS = 3
+MAX_ATTEMPTS = 3
 _ADDED_COLUMNS = {
     "digest": "TEXT",
     "summary_sent": "INTEGER NOT NULL DEFAULT 0",
     "kind": "TEXT",
     "run_seconds": "REAL",
+    "status_message_id": "INTEGER",
 }
 
 _SCHEMA = """
@@ -60,7 +61,8 @@ class JobQueue:
             cursor = conn.execute(
                 "INSERT INTO jobs (url, chat_id, message_id) VALUES (?, ?, ?) "
                 "ON CONFLICT(url) DO UPDATE SET status = 'pending', attempts = 0, "
-                "chat_id = excluded.chat_id, message_id = excluded.message_id "
+                "chat_id = excluded.chat_id, message_id = excluded.message_id, "
+                "status_message_id = NULL "
                 "WHERE status = 'failed'",
                 (url, chat_id, message_id),
             )
@@ -114,6 +116,32 @@ class JobQueue:
             ).fetchall()
         return [row[0] for row in rows]
 
+    def links_ahead(self, url: str) -> int:
+        """Count the unfinished jobs that run before this URL's job."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status IN ('pending', 'running') "
+                "AND id < (SELECT id FROM jobs WHERE url = ?)",
+                (url,),
+            ).fetchone()
+        return int(row[0])
+
+    def status_target(self, url: str) -> tuple[int, int, int | None] | None:
+        """Return the chat, the owner's message and the status message of a URL."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT chat_id, message_id, status_message_id FROM jobs WHERE url = ?",
+                (url,),
+            ).fetchone()
+        return None if row is None else (row[0], row[1], row[2])
+
+    def set_status_message(self, url: str, status_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET status_message_id = ? WHERE url = ?",
+                (status_id, url),
+            )
+
     def mark_summary_sent(self, job_id: int) -> None:
         with self._connect() as conn:
             conn.execute("UPDATE jobs SET summary_sent = 1 WHERE id = ?", (job_id,))
@@ -129,7 +157,7 @@ class JobQueue:
                 "UPDATE jobs SET attempts = attempts + 1, "
                 "status = CASE WHEN attempts + 1 < ? THEN 'pending' ELSE 'failed' END "
                 "WHERE id = ? RETURNING status",
-                (_MAX_ATTEMPTS, job_id),
+                (MAX_ATTEMPTS, job_id),
             ).fetchone()
         return row is not None and row[0] == "pending"
 

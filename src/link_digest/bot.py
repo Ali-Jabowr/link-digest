@@ -9,7 +9,8 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 from link_digest.pipeline import Digest, DigestError
-from link_digest.queue import Job, JobQueue
+from link_digest.queue import MAX_ATTEMPTS, Job, JobQueue
+from link_digest.status import DONE, FETCHING, SENDING
 from link_digest.telegram import TelegramError
 
 log = logging.getLogger(__name__)
@@ -82,11 +83,15 @@ def process_next(
         return False
     digest = job.digest
     if digest is None:
+        status(job.url, FETCHING)
         started = clock()
         try:
             digest = run(job.url)
         except DigestError as err:
-            if not queue.fail(job.id):
+            if queue.fail(job.id):
+                status(job.url, _retrying(job.attempts, err))
+            else:
+                status(job.url, f"Failed: {err}")
                 _notify_failure(send, job.chat_id, job.message_id, job.url, err)
             return True
         except Exception:
@@ -95,6 +100,9 @@ def process_next(
             raise
         queue.record_run(job.id, digest.kind, clock() - started)
         queue.save_digest(job.id, digest)
+    # A finished Digest resets attempts, so this run's count may be out of date.
+    tries = 0 if job.digest is None else job.attempts
+    status(job.url, SENDING)
     try:
         if not job.summary_sent:
             send.reply(job.chat_id, job.message_id, format_summary(digest, job.url))
@@ -102,12 +110,13 @@ def process_next(
         send.reply_file(job.chat_id, job.message_id, digest.html_path)
     except TelegramError as err:
         # A retry sends only what is still missing.
-        _after_failed_delivery(queue, job, digest, err, sleep)
+        _after_failed_delivery(queue, job, digest, err, sleep, tries, status)
         return True
     except Exception:
         queue.fail(job.id)
         raise
     queue.complete(job.id)
+    status(job.url, DONE)
     return True
 
 
@@ -117,11 +126,15 @@ def _after_failed_delivery(
     digest: Digest,
     err: TelegramError,
     sleep: Callable[[float], None],
+    tries: int,
+    status: Callable[[str, str], None],
 ) -> None:
     if err.kind == "rejected":
         if queue.fail(job.id):
             log.warning("could not deliver %s: %s", job.url, err)
+            status(job.url, _retrying(tries, err))
         else:
+            status(job.url, f"Failed: {err}")
             log.error(
                 "gave up delivering %s: %s; the report stays at %s",
                 job.url,
@@ -131,7 +144,13 @@ def _after_failed_delivery(
         return
     log.warning("could not deliver %s: %s", job.url, err)
     queue.retry_delivery(job.id)
+    # An outage never gives up, so this count has no limit to show.
+    status(job.url, f"Retrying (attempt {tries + 2}): {err}")
     sleep(err.retry_after or min(_BACKOFF_START * 2**job.attempts, _BACKOFF_MAX))
+
+
+def _retrying(tries: int, err: Exception) -> str:
+    return f"Retrying (attempt {tries + 2}/{MAX_ATTEMPTS}): {err}"
 
 
 def _notify_failure(
