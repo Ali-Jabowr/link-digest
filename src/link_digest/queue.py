@@ -73,12 +73,22 @@ class JobQueue:
             ).fetchone()
         if row is None:
             return None
-        return Job(*row[:5], _load_digest(row[5]), bool(row[6]))
+        job_id, url, chat_id, message_id, attempts, digest, summary_sent = row
+        return Job(
+            job_id,
+            url,
+            chat_id,
+            message_id,
+            attempts,
+            _load_digest(digest),
+            bool(summary_sent),
+        )
 
     def save_digest(self, job_id: int, digest: Digest) -> None:
+        """Save a finished Digest. Attempts now count tries at its Delivery."""
         with self._connect() as conn:
             conn.execute(
-                "UPDATE jobs SET digest = ? WHERE id = ?",
+                "UPDATE jobs SET digest = ?, attempts = 0 WHERE id = ?",
                 (_dump_digest(digest), job_id),
             )
 
