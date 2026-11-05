@@ -103,7 +103,7 @@ def digest_reusing_source(
     today: date,
 ) -> Digest:
     """Make a Digest, keeping the fetched Source on disk until it is finished."""
-    saved = sources_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
+    saved = _saved_path(url, sources_dir)
     result = digest(
         url,
         lambda target: _saved_or_fetched(saved, fetch, target),
@@ -112,12 +112,24 @@ def digest_reusing_source(
         html_dir,
         today,
     )
-    saved.unlink(missing_ok=True)
+    _remove_saved(saved)
     return result
 
 
 def forget_source(url: str, sources_dir: Path) -> None:
     """Remove the saved Source of a Link that gave up."""
+    _remove_saved(_saved_path(url, sources_dir))
+
+
+def _saved_path(url: str, sources_dir: Path) -> Path:
+    return sources_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
+
+
+def _remove_saved(saved: Path) -> None:
+    try:
+        saved.unlink(missing_ok=True)
+    except OSError as err:
+        log.warning("could not remove saved source %s: %s", saved, err)
 
 
 def _saved_or_fetched(saved: Path, fetch: Callable[[str], Source], url: str) -> Source:
@@ -125,11 +137,15 @@ def _saved_or_fetched(saved: Path, fetch: Callable[[str], Source], url: str) -> 
     if source is not None:
         return source
     source = fetch(url)
-    saved.parent.mkdir(parents=True, exist_ok=True)
-    # Written aside first, so a crash can't leave half a Source to be reused.
-    partial = saved.with_suffix(".partial")
-    partial.write_text(json.dumps(asdict(source)), encoding="utf-8")
-    partial.replace(saved)
+    try:
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        # Written aside first, so a crash can't leave half a Source to be reused.
+        partial = saved.with_suffix(".partial")
+        partial.write_text(json.dumps(asdict(source)), encoding="utf-8")
+        partial.replace(saved)
+    except OSError as err:
+        # Saving only speeds up a retry, so the Digest can go on without it.
+        log.warning("could not save source %s: %s", saved, err)
     return source
 
 
@@ -144,7 +160,7 @@ def _load_source(saved: Path) -> Source | None:
         )
     except FileNotFoundError:
         return None
-    except (ValueError, KeyError, TypeError) as err:
+    except (OSError, ValueError, KeyError, TypeError) as err:
         log.warning("could not read saved source %s: %s", saved, err)
         return None
 

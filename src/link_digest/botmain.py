@@ -13,7 +13,7 @@ from typing import Any, Protocol
 
 from link_digest.bot import Sender, handle_update, process_next
 from link_digest.cli import _DEFAULT_HTML, _DEFAULT_NOTES, choose_fetch
-from link_digest.pipeline import Digest, digest_reusing_source
+from link_digest.pipeline import Digest, digest_reusing_source, forget_source
 from link_digest.queue import JobQueue
 from link_digest.summarize import summarize
 from link_digest.telegram import Telegram, TelegramError
@@ -89,12 +89,13 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO)
     queue = JobQueue(_QUEUE_PATH.expanduser())
     queue.reset_running()
-    run = _runner(
-        args.notes_dir.expanduser(),
-        args.html_dir.expanduser(),
-        _SOURCES_PATH.expanduser(),
+    sources_dir = _SOURCES_PATH.expanduser()
+    run = _runner(args.notes_dir.expanduser(), args.html_dir.expanduser(), sources_dir)
+    worker = threading.Thread(
+        target=_work,
+        args=(queue, run, telegram, lambda url: forget_source(url, sources_dir)),
+        daemon=True,
     )
-    worker = threading.Thread(target=_work, args=(queue, run, telegram), daemon=True)
     worker.start()
     return run_until_worker_dies(worker, lambda: poll_once(telegram, chat_id, queue))
 
@@ -123,7 +124,7 @@ def _work(
     forget: Callable[[str], None] = lambda _url: None,
 ) -> None:
     while True:
-        if not process_next(queue, run, send, time.sleep):
+        if not process_next(queue, run, send, time.sleep, forget=forget):
             time.sleep(_IDLE_SECONDS)
 
 
