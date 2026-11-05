@@ -25,7 +25,8 @@ known clip. `./.claude/verify.sh` is the full check (format, lint, types, tests)
 
 The bot watches one Telegram group. Each new link in it is queued, digested, and
 answered with a short summary and the HTML report. A link that was sent before is
-not processed again.
+not processed again, unless it failed: sending a failed link again retries it, and
+reuses its report if one was already made.
 
 1. Create a bot with BotFather (`/newbot`) and copy its token.
 2. Turn off privacy mode with `/setprivacy` in BotFather, so the bot sees every

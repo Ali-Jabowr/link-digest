@@ -53,11 +53,13 @@ class JobQueue:
                     conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
 
     def add(self, url: str, chat_id: int, message_id: int) -> bool:
-        """Queue a URL. False if it was ever queued before, whatever its state."""
+        """Queue a URL, or requeue it if it failed. False if it is already known."""
         with self._connect() as conn:
             cursor = conn.execute(
-                "INSERT OR IGNORE INTO jobs (url, chat_id, message_id) "
-                "VALUES (?, ?, ?)",
+                "INSERT INTO jobs (url, chat_id, message_id) VALUES (?, ?, ?) "
+                "ON CONFLICT(url) DO UPDATE SET status = 'pending', attempts = 0, "
+                "chat_id = excluded.chat_id, message_id = excluded.message_id "
+                "WHERE status = 'failed'",
                 (url, chat_id, message_id),
             )
             return cursor.rowcount == 1
