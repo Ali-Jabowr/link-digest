@@ -116,7 +116,12 @@ def _runner(
     return run
 
 
-def _work(queue: JobQueue, run: Callable[[str], Digest], send: Sender) -> None:
+def _work(
+    queue: JobQueue,
+    run: Callable[[str], Digest],
+    send: Sender,
+    forget: Callable[[str], None] = lambda _url: None,
+) -> None:
     while True:
         if not process_next(queue, run, send, time.sleep):
             time.sleep(_IDLE_SECONDS)

@@ -74,6 +74,7 @@ def process_next(
     send: Sender,
     sleep: Callable[[float], None] = lambda _seconds: None,
     clock: Callable[[], float] = time.monotonic,
+    forget: Callable[[str], None] = lambda _url: None,
 ) -> bool:
     """Run the oldest job. Return False if there was none."""
     job = queue.next_job()

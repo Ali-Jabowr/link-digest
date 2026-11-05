@@ -116,6 +116,10 @@ def digest_reusing_source(
     return result
 
 
+def forget_source(url: str, sources_dir: Path) -> None:
+    """Remove the saved Source of a Link that gave up."""
+
+
 def _saved_or_fetched(saved: Path, fetch: Callable[[str], Source], url: str) -> Source:
     source = _load_source(saved)
     if source is not None:
