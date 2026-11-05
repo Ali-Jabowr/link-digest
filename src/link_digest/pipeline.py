@@ -20,6 +20,7 @@ class Source:
     kind: str  # "video" (timestamped segments) or "article" (numbered paragraphs)
     post_text: str  # the text of the post around the content, may be ""
     segments: list[Segment]
+    note: str = ""  # told to the owner in the summary, never sent to Claude
 
 
 @dataclass(frozen=True)

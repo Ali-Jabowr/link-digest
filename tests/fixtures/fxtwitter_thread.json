@@ -1,0 +1,63 @@
+{
+ "code": 200,
+ "status": {
+  "id": "1483922200662970370",
+  "text": "I started writing threads on Twitter in 2019.\n\nSince then, I've written more than 200 threads and accumulated over 50,000,000 views on Twitter alone.\n\nWant to know a secret?\n\nI (pretty much) use the same 7 thread templates every time.\n\n🧵👇",
+  "author": {
+   "screen_name": "author"
+  },
+  "replying_to": null,
+  "media": {}
+ },
+ "thread": [
+  {
+   "id": "1483922200662970370",
+   "text": "I started writing threads on Twitter in 2019.\n\nSince then, I've written more than 200 threads and accumulated over 50,000,000 views on Twitter alone.\n\nWant to know a secret?\n\nI (pretty much) use the same 7 thread templates every time.\n\n🧵👇",
+   "author": {
+    "screen_name": "author"
+   },
+   "replying_to": null,
+   "media": {}
+  },
+  {
+   "id": "1483922201577279489",
+   "text": "Template #1: The Framework Thread\n\nThe best frameworks all follow this same recipe:\n\n• To solve X [well-known & difficult] problem\n• I do Y [unconventional] thing\n• To achieve Z [highly desirable] outcome\n\nhttps://x.com/author/status/1478120718873341961",
+   "author": {
+    "screen_name": "author"
+   },
+   "replying_to": {
+    "screen_name": "author"
+   },
+   "media": {},
+   "quote": {
+    "id": "1478120718873341961",
+    "text": "In 2021, I published 4 books.\n\nIn 2022, I plan on publishing 8.\n\nHere's the 5-step framework I use to write 60,000+ words in 30 hours or less (2,000 words per hour) 👇",
+    "author": {
+     "screen_name": "author"
+    },
+    "replying_to": null,
+    "media": {}
+   }
+  },
+  {
+   "id": "1483922203158536193",
+   "text": "Template #2: The Curation Thread\n\nRecipe: \"I did all this work—so you don't have to.\"\n\nBut the secret w/ curation threads is to niche down HARD.\n\n\"Biz books to read on investing\" > \"Best biz books\" > \"Best books\"\n\nhttps://x.com/author/status/1478453846087286796",
+   "author": {
+    "screen_name": "author"
+   },
+   "replying_to": {
+    "screen_name": "author"
+   },
+   "media": {},
+   "quote": {
+    "id": "1478453846087286796",
+    "text": "Over the past 10 years, I have read over 500 business books.\n\n99% were 1 idea stretched across 300 pages.\n\nThey should have been blog posts.\n\nSave yourself the time and just read these 10 👇",
+    "author": {
+     "screen_name": "author"
+    },
+    "replying_to": null,
+    "media": {}
+   }
+  }
+ ]
+}
