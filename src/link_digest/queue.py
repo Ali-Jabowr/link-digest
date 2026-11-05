@@ -13,6 +13,8 @@ _MAX_ATTEMPTS = 3
 _ADDED_COLUMNS = {
     "digest": "TEXT",
     "summary_sent": "INTEGER NOT NULL DEFAULT 0",
+    "kind": "TEXT",
+    "run_seconds": "REAL",
 }
 
 _SCHEMA = """
@@ -93,6 +95,24 @@ class JobQueue:
                 "UPDATE jobs SET digest = ?, attempts = 0 WHERE id = ?",
                 (_dump_digest(digest), job_id),
             )
+
+    def record_run(self, job_id: int, kind: str, seconds: float) -> None:
+        """Remember how long a job's Digest took and the kind of its Source."""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET kind = ?, run_seconds = ? WHERE id = ?",
+                (kind, seconds, job_id),
+            )
+
+    def run_seconds(self, kind: str) -> list[float]:
+        """Return the recorded times for a kind of Source, oldest job first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT run_seconds FROM jobs "
+                "WHERE kind = ? AND run_seconds IS NOT NULL ORDER BY id",
+                (kind,),
+            ).fetchall()
+        return [row[0] for row in rows]
 
     def mark_summary_sent(self, job_id: int) -> None:
         with self._connect() as conn:
